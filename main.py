@@ -7,6 +7,12 @@ import time
 from escanear_red import obtener_hostnames_y_interfaces, obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
 from flask import Flask, jsonify, request
 from graficacion import graficar_enlaces_entre_routers, obtener_vecinos
+from configuracion_ssh import configure_ssh_from_json
+from usuarios import leer_usuarios_con_permisos
+from usuarios import agregar_usuario
+from usuarios import eliminar_usuario
+from usuarios import actualizar_usuario
+
 
 # Variables globales
 diccionario_router_ip = {}
@@ -22,7 +28,7 @@ app = Flask(__name__)
 def inicializar_red():
     print("Configurando SSH y escaneando la red")
     #Descomentar al terminar
-    #configure_ssh_from_json()
+    configure_ssh_from_json()
     global diccionario_router_ip
     diccionario_router_ip = obtener_diccionario_router_ip()
 
@@ -162,11 +168,64 @@ def get_data():
     name = data.get('name', 'Unknown')  # Obtenemos el valor de 'name', por defecto 'Unknown'
     return jsonify({"message": f"Hello, {name}!"})
 
+# Ruta para obtener los usuarios de todos los routers
+@app.route('/usuarios', methods=['GET'])
+def obtener_usuarios():
+    usuarios = []
+    for ip in diccionario_router_ip.values():
+        usuarios_router = leer_usuarios_con_permisos(ip)
+        if usuarios_router:
+            usuarios.extend(usuarios_router)
+    return jsonify(usuarios)
+
+# Ruta para agregar un usuario a los routers
+@app.route('/usuarios', methods=['POST'])
+def agregar_usuario_api():
+    data = request.get_json()
+    nombre = data.get('nombre')
+    password = data.get('password')
+    privilegios = data.get('privilegios', '15')
+    
+    if not nombre or not password:
+        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
+    
+    resultados = []
+    for ip in diccionario_router_ip.values():
+        resultado = agregar_usuario(ip, nombre, password, privilegios)
+        resultados.append(resultado)
+    
+    return jsonify(resultados)
+
+# Ruta para actualizar un usuario en los routers
+@app.route('/usuarios/<nombre>', methods=['PUT'])
+def actualizar_usuario_api(nombre):
+    data = request.get_json()
+    password = data.get('password')
+    privilegios = data.get('privilegios', '15')
+    
+    if not password:
+        return jsonify({"error": "Falta el parámetro 'password'"}), 400
+    
+    resultados = []
+    for ip in diccionario_router_ip.values():
+        resultado = actualizar_usuario(ip, nombre, password, privilegios)
+        resultados.append(resultado)
+    
+    return jsonify(resultados)
+
+# Ruta para eliminar un usuario de los routers
+@app.route('/usuarios/<nombre>', methods=['DELETE'])
+def eliminar_usuario_api(nombre):
+    resultados = []
+    for ip in diccionario_router_ip.values():
+        resultado = eliminar_usuario(ip, nombre)
+        resultados.append(resultado)
+    
+    return jsonify(resultados)
+
 # Iniciar el servidor
 if __name__ == '__main__':
-    # Realizar la configuración y escaneo solo la primera vez
     if primera_ejecucion:
-        
         inicializar_red()  # Llamamos a la función de configuración
         primera_ejecucion = False  # Evitamos que se vuelva a ejecutar
     
