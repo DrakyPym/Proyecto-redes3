@@ -65,13 +65,19 @@ def obtener_informacion_interfaz(hostname):
         # Si hay un error en la función, retornar un error 500
         if resultado is None:
             return jsonify({"error 500": "Error al obtener la información del router"}), 500
+
+        # Convertir el resultado JSON (string) a un objeto de Python
+        resultado_json = json.loads(resultado)
         
-        # Devolver la información obtenida en formato JSON
-        return jsonify(json.loads(resultado)), 200
+        # Eliminar el primer elemento de "interfaces"
+        if "interfaces" in resultado_json and len(resultado_json["interfaces"]) > 0:
+            resultado_json["interfaces"].pop(0)
+        
+        # Devolver la información modificada en formato JSON
+        return jsonify(resultado_json), 200
     else:
         # Si el hostname no existe, retornar un error 404
         return jsonify({"error 404": "Router no encontrado"}), 404
-
 
 @app.route('/api/data', methods=['POST'])
 def get_data():
