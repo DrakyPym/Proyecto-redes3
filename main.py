@@ -1,7 +1,10 @@
 import json
-from configuracion_ssh import configure_ssh_from_json
-from escanear_red import obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
+import ipaddress
+import matplotlib.pyplot as plt
+import networkx as nx
+from escanear_red import obtener_hostnames_y_interfaces, obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
 from flask import Flask, jsonify, request
+from graficacion import graficar_enlaces_entre_routers
 
 # Variables globales
 diccionario_router_ip = {}
@@ -19,7 +22,9 @@ def inicializar_red():
 
 @app.route('/topologia/grafica', methods=['GET'])
 def graficarTopologia():
-    return jsonify({"message": "Hello, World!"})
+    obtener_hostnames_y_interfaces()
+    graficar_enlaces_entre_routers('network_info.json', 'enlaces_entre_routers.png')
+    return jsonify({"message": "Grafica lista :3"}), 200
 
 @app.route('/routers', methods=['GET'])
 def obtener_informacion_routers():
