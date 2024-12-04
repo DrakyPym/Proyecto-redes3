@@ -1,7 +1,4 @@
-import subprocess
-import pexpect
-import paramiko
-import json
+import json, time, paramiko, pexpect, subprocess
 
 #Debuelve las IP de las interfaces
 def escanear_interfaces():
@@ -152,47 +149,74 @@ def obtener_diccionario_router_ip(file_path="network_info.json"):
 
     return resultado
 
+
 # Función que obtiene la información del router a través de SSH
 def obtener_informacion_router(hostname, ip):
     try:
         # Crear un cliente SSH
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
+        paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
         # Conectarse al router
         ssh_client.connect(ip, username="admin", password="admin")
 
-        # Obtener información básica: Sistema Operativo, IP loopback, etc.
-        # Ejecutar comandos en el router para obtener la información necesaria
-        stdin, stdout, stderr = ssh_client.exec_command('show version')  # Sistema operativo y versión
-        version_info = stdout.read().decode()
+        # Verificar si la conexión está activa
+        transport = ssh_client.get_transport()
+        if transport is not None and transport.is_active():
+            print(f"Conexión SSH establecida exitosamente con {hostname} ({ip}).")
+        else:
+            print(f"No se pudo establecer la conexión SSH con {hostname} ({ip}).")
+            ssh_client.close()
+            return None
 
-        stdin, stdout, stderr = ssh_client.exec_command('show ip interface brief')  # Interfaces activas
-        interfaces_info = stdout.read().decode()
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)  # Esperar a que la shell esté lista
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Ejecutar el comando 'show version'
+        shell.send('show version\n')
+        time.sleep(2)  # Dar tiempo al dispositivo para generar la salida
+        version_output = shell.recv(65535).decode('utf-8').strip()
+
+        # Ejecutar el comando 'show ip interface brief'
+        shell.send('show ip interface brief\n')
+        time.sleep(2)
+        interfaces_output = shell.recv(65535).decode('utf-8').strip()
 
         # Procesar la información obtenida
         sistema_operativo = "Desconocido"
-        for line in version_info.splitlines():
-            if 'Cisco IOS' in line:  # Aquí podrías agregar más lógica según el sistema operativo
+        for line in version_output.splitlines():
+            if 'Cisco IOS' in line:  # Detectar Cisco IOS en el sistema operativo
                 sistema_operativo = line.strip()
 
-        # Extraer la IP loopback del comando 'show ip interface brief'
+        # Buscar la IP de Loopback y obtener interfaces activas con sus IPs
         ip_loopback = None
-        for line in interfaces_info.splitlines():
-            if "Loopback" in line:  # Buscar interfaz Loopback
-                ip_loopback = line.split()[1]
-                break
+        interfaces = {}  # Diccionario para almacenar interfaces activas y sus IPs
+        for line in interfaces_output.splitlines():
+            columns = line.split()
+            if len(columns) >= 2:  # Verificar que haya suficientes columnas
+                interface_name = columns[0]  # Nombre de la interfaz
+                ip_address = columns[1]  # Dirección IP
+                status = columns[-2]  # Estado administrativo
+                protocol = columns[-1]  # Protocolo
 
-        # Simulando rol y empresa por defecto (esto puede ser dinámico según tu infraestructura)
+                # Verificar si es Loopback
+                if "Loopback" in interface_name:
+                    ip_loopback = ip_address
+
+                # Agregar interfaces activas (estado "up")
+                if status == "up" and protocol == "up":
+                    interfaces[interface_name] = ip_address
+
+        # Simular rol y empresa
         rol = "Router"
-        empresa = "MiEmpresa"
-
-        # Obtener interfaces activas
-        interfaces_activas = []
-        for line in interfaces_info.splitlines():
-            if 'up' in line:  # Verifica si la interfaz está activa
-                interfaz = line.split()[0]
-                interfaces_activas.append(interfaz)
+        empresa = "Cisco"
 
         # Cerrar la conexión SSH
         ssh_client.close()
@@ -204,10 +228,18 @@ def obtener_informacion_router(hostname, ip):
             "rol": rol,
             "empresa": empresa,
             "sistema_operativo": sistema_operativo,
-            "interfaces_activas": interfaces_activas
+            "interfaces": interfaces,
+            "link_interfaces": "http://127.0.0.1:5000/routers/"+hostname+"/interfaces"
         }
-    
+
+    except paramiko.SSHException as ssh_error:
+        print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
     except Exception as e:
         print(f"Error al obtener la información de {hostname} ({ip}): {e}")
-        return None
+    finally:
+        try:
+            ssh_client.close()
+        except:
+            pass  # Evitar errores si la conexión ya está cerrada
 
+    return None

@@ -13,7 +13,8 @@ app = Flask(__name__)
 # Función que ejecuta la configuración SSH y escanea la red
 def inicializar_red():
     print("Configurando SSH y escaneando la red")
-    configure_ssh_from_json()
+    #Descomentar al terminar
+    #configure_ssh_from_json()
     global diccionario_router_ip
     diccionario_router_ip = obtener_diccionario_router_ip()
 
@@ -26,10 +27,9 @@ def obtener_informacion_routers():
     routers_info = []
     
     # Recorrer el diccionario de routers y obtener la información de cada uno
-    for hostname, ip_list in diccionario_router_ip.items():
-        # Tomar la primera IP en la lista
-        ip = ip_list[0]
-        
+    for hostname, ip in diccionario_router_ip.items():
+
+        print("ip: " + ip)
         # Obtener la información del router
         router_info = obtener_informacion_router(hostname, ip)
         
@@ -37,6 +37,8 @@ def obtener_informacion_routers():
             routers_info.append(router_info)
     
     return jsonify(routers_info)
+
+
 
 @app.route('/api/data', methods=['POST'])
 def get_data():
