@@ -2,6 +2,8 @@ import json
 import ipaddress
 import matplotlib.pyplot as plt
 import networkx as nx
+import threading
+import time
 from escanear_red import obtener_hostnames_y_interfaces, obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
 from flask import Flask, jsonify, request
 from graficacion import graficar_enlaces_entre_routers, obtener_vecinos
@@ -9,6 +11,10 @@ from graficacion import graficar_enlaces_entre_routers, obtener_vecinos
 # Variables globales
 diccionario_router_ip = {}
 primera_ejecucion = True
+# Variable global que determinará el tiempo de intervalo
+intervalo = 5  # Intervalo inicial en minutos
+# Variable de control para detener el hilo
+detener_hilo = threading.Event()
 
 app = Flask(__name__)
 
@@ -19,6 +25,23 @@ def inicializar_red():
     #configure_ssh_from_json()
     global diccionario_router_ip
     diccionario_router_ip = obtener_diccionario_router_ip()
+
+# Función que se ejecutará periódicamente
+def funcion_periodica():
+    global intervalo
+    while not detener_hilo.is_set():  # Comprobamos si se debe detener el hilo
+        obtener_hostnames_y_interfaces()
+        time.sleep(intervalo*60)
+
+# Función para cambiar el intervalo
+def cambiar_intervalo(nuevo_intervalo):
+    global intervalo
+    intervalo = nuevo_intervalo
+    print("Nuevo intervalo:", intervalo, "segundos")
+
+# Función para matar el hilo desde el hilo principal
+def detener_hilo_secundario():
+    detener_hilo.set()  # Establecemos el evento para que el hilo termine
 
 @app.route('/topologia', methods=['GET'])
 def info_routers():
@@ -37,6 +60,37 @@ def info_routers():
         for vecino in vecinos:
             mi_diccionario[hostname].append("http://127.0.0.1:5000/routers/" + vecino)
     return mi_diccionario, 200
+
+@app.route('/topologia', methods=['POST'])
+def iniciar_demonio():
+    hilo_secundario = threading.Thread(target=funcion_periodica)
+    hilo_secundario.start()
+    return "Demonio creado", 200
+
+@app.route('/topologia', methods=['PUT'])
+def iniciar_demonio_put():
+    try:
+        # Obtener el número entero enviado en el cuerpo de la solicitud (asumido en JSON)
+        data = request.get_json()
+        
+        if not data or 'intervalo' not in data:
+            return "Falta el parámetro 'intervalo' en la solicitud", 400
+        
+        nuevo_intervalo = data['intervalo']
+        
+        if not isinstance(nuevo_intervalo, int):
+            return "'intervalo' debe ser un número entero", 400
+        
+        # Cambiar el intervalo
+        cambiar_intervalo(nuevo_intervalo)
+        return f"Intervalo actualizado a {nuevo_intervalo} segundos.", 200
+    except Exception as e:
+        return f"Error al procesar la solicitud: {str(e)}", 500
+
+@app.route('/topologia', methods=['DELETE'])
+def iniciar_demonio():
+    detener_hilo_secundario()
+    return "Demonio muerto", 200
 
 @app.route('/topologia/grafica', methods=['GET'])
 def graficar_topologia():
