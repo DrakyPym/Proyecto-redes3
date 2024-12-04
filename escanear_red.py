@@ -2,6 +2,7 @@ import subprocess
 import pexpect
 import json
 
+#Debuelve las IP de las interfaces
 def escanear_interfaces():
     """Escanea las redes 10.10.10.0/24 y 20.20.30.0/24 y devuelve las IPs de las interfaces en una lista."""
     print("Iniciando escaneo de redes...")
@@ -36,6 +37,7 @@ def escanear_interfaces():
         print(f"Error durante el escaneo: {e}")
         return []
 
+#Obtiene el hostname e una IP
 def get_hostname(ip, user="admin", password="admin"):
     try:
         # Inicia la conexión TELNET
@@ -63,40 +65,7 @@ def get_hostname(ip, user="admin", password="admin"):
     except Exception as e:
         return f"Error: {str(e)}"
 
-
-def obtener_hostnames_y_interfaces():
-    # Obtiene las IPs de las interfaces
-    interfaces = escanear_interfaces()
-
-    # Diccionario para almacenar los hostnames y sus respectivas interfaces
-    network_info = {}
-
-    for ip in interfaces:
-        # Obtén el hostname para cada IP
-        hostname = get_hostname(ip)
-
-        # Obtén la IP de la interfaz loopback 0
-        loopback_ip = obtener_ip_loopback(ip)
-
-        if hostname not in network_info:
-            network_info[hostname] = []
-
-        # Agregar las interfaces al diccionario, pero solo si no son la IP de loopback duplicada
-        if ip not in network_info[hostname]:
-            network_info[hostname].append(ip)
-
-        # Si se obtuvo la IP de loopback y no está ya en la lista, agregarla también
-        if loopback_ip and loopback_ip not in network_info[hostname]:
-            network_info[hostname].append(loopback_ip)
-    
-    # Escribir la información en un archivo JSON
-    with open("network_info.json", "w") as json_file:
-        json.dump(network_info, json_file, indent=4)
-    
-    print("La información de red se ha guardado en 'network_info.json'.")
-
-import pexpect
-
+#Obtiene la ip loopback a partir de una ip
 def obtener_ip_loopback(host, usuario='admin', contrasena='admin'):
     # Comando de Telnet
     comando_telnet = f"telnet {host}"
@@ -134,5 +103,36 @@ def obtener_ip_loopback(host, usuario='admin', contrasena='admin'):
 
     return None
 
-# Llamada a la función principal
-obtener_hostnames_y_interfaces()
+#Funcion principal
+#Obtiene los hostnames e interfaces guardandolas en un json
+def obtener_hostnames_y_interfaces():
+    # Obtiene las IPs de las interfaces
+    interfaces = escanear_interfaces()
+
+    # Diccionario para almacenar los hostnames y sus respectivas interfaces
+    network_info = {}
+
+    for ip in interfaces:
+        # Obtén el hostname para cada IP
+        hostname = get_hostname(ip)
+
+        # Obtén la IP de la interfaz loopback 0
+        loopback_ip = obtener_ip_loopback(ip)
+
+        if hostname not in network_info:
+            network_info[hostname] = []
+
+        # Agregar las interfaces al diccionario, pero solo si no son la IP de loopback duplicada
+        if ip not in network_info[hostname]:
+            network_info[hostname].append(ip)
+
+        # Si se obtuvo la IP de loopback y no está ya en la lista, agregarla también
+        if loopback_ip and loopback_ip not in network_info[hostname]:
+            network_info[hostname].append(loopback_ip)
+    
+    # Escribir la información en un archivo JSON
+    with open("network_info.json", "w") as json_file:
+        json.dump(network_info, json_file, indent=4)
+    
+    print("La información de red se ha guardado en 'network_info.json'.")
+
