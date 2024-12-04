@@ -5,8 +5,8 @@ import os
 # Datos de conexión SSH
 hostname = '192.168.1.1'
 port = 22
-username = 'your_username'
-password = 'your_password'
+username = 'admin'
+password = 'admin'
 
 # Función para crear una conexión SSH
 def crear_conexion():
@@ -35,18 +35,33 @@ def ejecutar_comando(cliente, comando):
 # Ruta relativa para el archivo de usuarios en el repositorio
 ruta_archivo_json = 'network_info.json'
 
-# Función para recuperar los usuarios del router
-def obtener_usuarios(cliente):
+def obtener_usuarios(cliente, hostname):
     try:
-        # Comando que lee el archivo JSON de usuarios en el router
+        # Determinamos la ruta del archivo JSON de usuarios según el hostname del router
+        if hostname == "R1":
+            ruta_archivo_json = "/ruta/a/archivo/R1_network_info.json"
+        elif hostname == "R2":
+            ruta_archivo_json = "/ruta/a/archivo/R2_network_info.json"
+        elif hostname == "TOR-1":
+            ruta_archivo_json = "/ruta/a/archivo/TOR-1_network_info.json"
+        elif hostname == "TOR-2":
+            ruta_archivo_json = "/ruta/a/archivo/TOR-2_network_info.json"
+        elif hostname == "ISP":
+            ruta_archivo_json = "/ruta/a/archivo/ISP_network_info.json"
+        else:
+            print(f"Router {hostname} no encontrado.")
+            return []
+
+        # Comando que lee el archivo JSON de usuarios en el router especificado
         comando = f"cat {ruta_archivo_json}"
         salida = ejecutar_comando(cliente, comando)
+        
         if salida:
             return json.loads(salida)
         else:
             return []
     except Exception as e:
-        print(f"Error al obtener los usuarios: {e}")
+        print(f"Error al obtener los usuarios desde el router {hostname}: {e}")
         return []
 
 # Función para agregar un nuevo usuario al router

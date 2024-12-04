@@ -164,41 +164,89 @@ def obtener_informacion_interfaz(hostname):
         return jsonify({"error 404": "Router no encontrado"}), 404
     
 @app.route('/routers/<hostname>/usuarios', methods=['GET'])
-def obtener_informacion_usuarios(router):
-        cliente = crear_conexion
-        data = request.get_json()
-        hostname = data.get(hostname)
-        if router in diccionario_router_ip:
-            obtener_usuarios(cliente, router)
+def obtener_informacion_usuarios(hostname):
+    cliente = crear_conexion()
+    
+    # Verificar si el router existe en el diccionario
+    if hostname in diccionario_router_ip:
+        usuarios = obtener_usuarios(cliente, hostname)
+        
+        if usuarios:
+            return jsonify(usuarios), 200
         else:
-            return jsonify({"error": "Ese router no existe"}), 400
+            return jsonify({"error": "No se encontraron usuarios en este router"}), 404
+    else:
+        return jsonify({"error": "Router no encontrado"}), 404
 
 @app.route('/routers/<hostname>/usuarios', methods=['POST'])
-def agregar_usuario_router():
-        cliente = crear_conexion
-        data = request.get_json()
-        nombre = data.get('nombre')
-        password = data.get('password')
-        privilegios = data.get('privilegios', '15')
-        
-        if not nombre or not password:
-            return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
-        
-        resultados = []
-        for ip in diccionario_router_ip.values():
-            usuario = {nombre, password}
-            resultado = agregar_usuario(cliente, usuario)
-            resultados.append(resultado)
-
-        return jsonify(resultados)
+def agregar_usuario_router(hostname):
+    cliente = crear_conexion()
+    data = request.get_json()
     
+    # Extraer los parámetros del cuerpo de la solicitud
+    nombre = data.get('nombre')
+    password = data.get('password')
+    privilegios = data.get('privilegios', '15')
+    
+    # Validar la entrada
+    if not nombre or not password:
+        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
+
+    # Llamar a la función para agregar el usuario
+    resultado = agregar_usuario(cliente, hostname, nombre, password, privilegios)
+    
+    if resultado:
+        return jsonify({"mensaje": "Usuario agregado correctamente"}), 201
+    else:
+        return jsonify({"error": "Error al agregar el usuario"}), 500
+
 @app.route('/routers/<hostname>/usuarios', methods=['PUT'])
-def actualizar_usuario_router(nombre, hostname):
-    cliente = crear_conexion
-    if nombre in obtener_usuarios():
-        data = request.get_json()
-        nombre = data.get('nombre')
-        password = data.get('password')
+def actualizar_usuario_router(hostname):
+    cliente = crear_conexion()
+    data = request.get_json()
+    
+    # Extraer los parámetros de la solicitud
+    nombre = data.get('nombre')
+    password = data.get('password')
+    privilegios = data.get('privilegios')
+
+    # Validar la entrada
+    if not nombre or not password:
+        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
+
+    if hostname in diccionario_router_ip:
+        # Llamar a la función para actualizar el usuario
+        resultado = actualizar_usuario(cliente, hostname, nombre, password, privilegios)
+        
+        if resultado:
+            return jsonify({"mensaje": "Usuario actualizado correctamente"}), 200
+        else:
+            return jsonify({"error": "Error al actualizar el usuario"}), 500
+    else:
+        return jsonify({"error": "Router no encontrado"}), 404
+
+@app.route('/routers/<hostname>/usuarios', methods=['DELETE'])
+def eliminar_usuario_router(hostname):
+    cliente = crear_conexion()
+    data = request.get_json()
+    
+    # Extraer el nombre del usuario
+    nombre = data.get('nombre')
+    
+    # Validar la entrada
+    if not nombre:
+        return jsonify({"error": "Falta el parámetro 'nombre'"}), 400
+    
+    if hostname in diccionario_router_ip:
+        # Llamar a la función para eliminar el usuario
+        resultado = eliminar_usuario(cliente, hostname, nombre)
+        
+        if resultado:
+            return jsonify({"mensaje": "Usuario eliminado correctamente"}), 200
+        else:
+            return jsonify({"error": "Error al eliminar el usuario"}), 500
+    else:
+        return jsonify({"error": "Router no encontrado"}), 404
 
 @app.route('/api/data', methods=['POST'])
 def get_data():
