@@ -68,7 +68,7 @@ def iniciar_demonio():
     return "Demonio creado", 200
 
 @app.route('/topologia', methods=['PUT'])
-def iniciar_demonio_put():
+def demonio_put():
     try:
         # Obtener el número entero enviado en el cuerpo de la solicitud (asumido en JSON)
         data = request.get_json()
@@ -88,7 +88,7 @@ def iniciar_demonio_put():
         return f"Error al procesar la solicitud: {str(e)}", 500
 
 @app.route('/topologia', methods=['DELETE'])
-def iniciar_demonio():
+def demonio_delete():
     detener_hilo_secundario()
     return "Demonio muerto", 200
 
