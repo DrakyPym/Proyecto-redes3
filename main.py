@@ -12,6 +12,7 @@ from usuarios import leer_usuarios_con_permisos
 from usuarios import agregar_usuario
 from usuarios import eliminar_usuario
 from usuarios import actualizar_usuario
+from crud_usuarios_routers import crear_conexion, obtener_usuarios, agregar_usuario, actualizar_usuario, eliminar_usuario
 
 
 # Variables globales
@@ -161,6 +162,43 @@ def obtener_informacion_interfaz(hostname):
     else:
         # Si el hostname no existe, retornar un error 404
         return jsonify({"error 404": "Router no encontrado"}), 404
+    
+@app.route('/routers/<hostname>/usuarios', methods=['GET'])
+def obtener_informacion_usuarios(router):
+        cliente = crear_conexion
+        data = request.get_json()
+        hostname = data.get(hostname)
+        if router in diccionario_router_ip:
+            obtener_usuarios(cliente, router)
+        else:
+            return jsonify({"error": "Ese router no existe"}), 400
+
+@app.route('/routers/<hostname>/usuarios', methods=['POST'])
+def agregar_usuario_router():
+        cliente = crear_conexion
+        data = request.get_json()
+        nombre = data.get('nombre')
+        password = data.get('password')
+        privilegios = data.get('privilegios', '15')
+        
+        if not nombre or not password:
+            return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
+        
+        resultados = []
+        for ip in diccionario_router_ip.values():
+            usuario = {nombre, password}
+            resultado = agregar_usuario(cliente, usuario)
+            resultados.append(resultado)
+
+        return jsonify(resultados)
+    
+@app.route('/routers/<hostname>/usuarios', methods=['PUT'])
+def actualizar_usuario_router(nombre, hostname):
+    cliente = crear_conexion
+    if nombre in obtener_usuarios():
+        data = request.get_json()
+        nombre = data.get('nombre')
+        password = data.get('password')
 
 @app.route('/api/data', methods=['POST'])
 def get_data():
