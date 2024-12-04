@@ -65,7 +65,7 @@ def info_routers():
 def iniciar_demonio():
     hilo_secundario = threading.Thread(target=funcion_periodica)
     hilo_secundario.start()
-    return "Demonio creado", 200
+    return "Demonio creado\n", 200
 
 @app.route('/topologia', methods=['PUT'])
 def demonio_put():
@@ -83,14 +83,14 @@ def demonio_put():
         
         # Cambiar el intervalo
         cambiar_intervalo(nuevo_intervalo)
-        return f"Intervalo actualizado a {nuevo_intervalo} segundos.", 200
+        return f"Intervalo actualizado a {nuevo_intervalo} segundos.\n", 200
     except Exception as e:
-        return f"Error al procesar la solicitud: {str(e)}", 500
+        return f"Error al procesar la solicitud: {str(e)}\n", 500
 
 @app.route('/topologia', methods=['DELETE'])
 def demonio_delete():
     detener_hilo_secundario()
-    return "Demonio muerto", 200
+    return "Demonio muerto\n", 200
 
 @app.route('/topologia/grafica', methods=['GET'])
 def graficar_topologia():
