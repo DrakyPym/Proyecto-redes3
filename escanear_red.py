@@ -102,7 +102,7 @@ def obtener_ip_loopback(host, usuario='admin', contrasena='admin'):
     return None
 
 #Funcion principal
-#Obtiene los hostnames e interfaces guardandolas en un json
+#Obtiene los hostnames e interfaces entre routers guardandolas en un json
 def obtener_hostnames_y_interfaces():
     # Obtiene las IPs de las interfaces
     interfaces = escanear_interfaces()
@@ -243,3 +243,105 @@ def obtener_informacion_router(hostname, ip):
             pass  # Evitar errores si la conexión ya está cerrada
 
     return None
+
+# Función que obtiene la información general de las interfaces de un router
+def obtener_informacion_interfaces(hostname, ip):
+    try:
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
+
+        # Verificar si la conexión está activa
+        transport = ssh_client.get_transport()
+        if transport is not None and transport.is_active():
+            print(f"Conexión SSH establecida exitosamente con {hostname} ({ip}).")
+        else:
+            print(f"No se pudo establecer la conexión SSH con {hostname} ({ip}).")
+            ssh_client.close()
+            return None
+
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)  # Esperar a que la shell esté lista
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Ejecutar el comando 'show ip interface brief'
+        shell.send('show ip interface brief\n')
+        time.sleep(2)
+        interfaces_output = shell.recv(65535).decode('utf-8').strip()
+
+        # Inicializar variables
+        interfaces_info = []  # Lista para almacenar la información detallada de cada interfaz
+        ip_loopback = None    # IP del Loopback (será el ip_router)
+
+        # Procesar la información obtenida
+        for index, line in enumerate(interfaces_output.splitlines()):
+            columns = line.split()
+            
+            # Omitir la primera línea que contiene encabezados
+            if index == 0:  # Omitir encabezados
+                continue
+
+            # Validar que la línea tenga suficientes columnas
+            if len(columns) < 6:
+                print(f"Línea inesperada: {line}")  # Para depuración
+                continue
+
+            interface_name = columns[0]  # Nombre de la interfaz
+            ip_address = columns[1]  # Dirección IP
+            status = columns[-2]  # Estado administrativo
+            protocol = columns[-1]  # Protocolo
+
+            # Determinar tipo y número (asumiendo formato estándar, e.g., GigabitEthernet0/0)
+            interface_type = ''.join([i for i in interface_name if not i.isdigit() and i != '/'])
+            interface_number = ''.join([i for i in interface_name if i.isdigit() or i == '/'])
+
+            # Verificar si es Loopback para definir ip_router
+            if "Loopback" in interface_name and ip_loopback is None:
+                ip_loopback = ip_address  # Usar la IP del Loopback como ip_router
+
+            # Agregar información de interfaces activas
+            interfaces_info.append({
+                "tipo": interface_type,
+                "numero": interface_number,
+                "ip": ip_address,
+                "estado": f"{status}/{protocol}",
+                "router_conectado": f"http://127.0.0.1:5000/routers/{hostname}/interfaces/{interface_name}"
+            })
+
+        # Cerrar la conexión SSH
+        ssh_client.close()
+
+        # Si no se encontró loopback, devolver un error
+        if not ip_loopback:
+            ip_loopback = ip  # Asignar la IP del router como respaldo si no hay Loopback
+
+        # Devolver las interfaces en formato JSON
+        return json.dumps({
+            "nombre": hostname,
+            "ip_router": ip_loopback,  # Usar loopback como ip_router si está disponible
+            "interfaces": interfaces_info
+        }, indent=4)
+
+    except paramiko.SSHException as ssh_error:
+        print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+    except Exception as e:
+        print(f"Error al obtener la información de las interfaces de {hostname} ({ip}): {e}")
+    finally:
+        try:
+            ssh_client.close()
+        except:
+            pass  # Evitar errores si la conexión ya está cerrada
+
+    return None
+
+
+
