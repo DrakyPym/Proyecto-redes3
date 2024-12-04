@@ -1,18 +1,19 @@
 import subprocess
 import pexpect
+import paramiko
 import json
 
 #Debuelve las IP de las interfaces
 def escanear_interfaces():
     """Escanea las redes 10.10.10.0/24 y 20.20.30.0/24 y devuelve las IPs de las interfaces en una lista."""
-    print("Iniciando escaneo de redes...")
+    print("\nEscaneando las redes...\n")
     try:
         # Escanear las dos redes
         redes = ["10.10.10.0/24", "20.20.30.0/24"]
         devices = []
 
         for red in redes:
-            print(f"Escaneando la red {red}...")
+            #print(f"Escaneando la red {red}...")
             result = subprocess.run(
                 ["nmap", "-sn", red],  # Solo realiza un ping-scan
                 capture_output=True,
@@ -27,9 +28,9 @@ def escanear_interfaces():
                     devices.append(ip)
         
         # Mostrar resultados
-        print("Dispositivos detectados:")
-        for ip in devices:
-            print(f"{ip}")
+        #print("Dispositivos detectados:")
+        #for ip in devices:
+        #    print(f"{ip}")
         
         return devices
     
@@ -135,4 +136,78 @@ def obtener_hostnames_y_interfaces():
         json.dump(network_info, json_file, indent=4)
     
     print("La información de red se ha guardado en 'network_info.json'.")
+
+def obtener_diccionario_router_ip(file_path="network_info.json"):
+    # Leer el archivo JSON
+    with open(file_path, 'r') as file:
+        json_routers = json.load(file)
+
+    # Creamos un diccionario vacío para almacenar las IPs
+    resultado = {}
+
+    # Recorremos cada router en el diccionario
+    for router, ips in json_routers.items():
+        if ips:  # Aseguramos que la lista de IPs no esté vacía
+            resultado[router] = ips[0]  # Guardamos el primer valor de la lista de IPs
+
+    return resultado
+
+# Función que obtiene la información del router a través de SSH
+def obtener_informacion_router(hostname, ip):
+    try:
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
+
+        # Obtener información básica: Sistema Operativo, IP loopback, etc.
+        # Ejecutar comandos en el router para obtener la información necesaria
+        stdin, stdout, stderr = ssh_client.exec_command('show version')  # Sistema operativo y versión
+        version_info = stdout.read().decode()
+
+        stdin, stdout, stderr = ssh_client.exec_command('show ip interface brief')  # Interfaces activas
+        interfaces_info = stdout.read().decode()
+
+        # Procesar la información obtenida
+        sistema_operativo = "Desconocido"
+        for line in version_info.splitlines():
+            if 'Cisco IOS' in line:  # Aquí podrías agregar más lógica según el sistema operativo
+                sistema_operativo = line.strip()
+
+        # Extraer la IP loopback del comando 'show ip interface brief'
+        ip_loopback = None
+        for line in interfaces_info.splitlines():
+            if "Loopback" in line:  # Buscar interfaz Loopback
+                ip_loopback = line.split()[1]
+                break
+
+        # Simulando rol y empresa por defecto (esto puede ser dinámico según tu infraestructura)
+        rol = "Router"
+        empresa = "MiEmpresa"
+
+        # Obtener interfaces activas
+        interfaces_activas = []
+        for line in interfaces_info.splitlines():
+            if 'up' in line:  # Verifica si la interfaz está activa
+                interfaz = line.split()[0]
+                interfaces_activas.append(interfaz)
+
+        # Cerrar la conexión SSH
+        ssh_client.close()
+
+        # Devolver los datos del router en formato de diccionario
+        return {
+            "nombre": hostname,
+            "ip_loopback": ip_loopback,
+            "rol": rol,
+            "empresa": empresa,
+            "sistema_operativo": sistema_operativo,
+            "interfaces_activas": interfaces_activas
+        }
+    
+    except Exception as e:
+        print(f"Error al obtener la información de {hostname} ({ip}): {e}")
+        return None
 
