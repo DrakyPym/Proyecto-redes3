@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from escanear_red import obtener_hostnames_y_interfaces, obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
 from flask import Flask, jsonify, request
-from graficacion import graficar_enlaces_entre_routers
+from graficacion import graficar_enlaces_entre_routers, obtener_vecinos
 
 # Variables globales
 diccionario_router_ip = {}
@@ -20,8 +20,26 @@ def inicializar_red():
     global diccionario_router_ip
     diccionario_router_ip = obtener_diccionario_router_ip()
 
+@app.route('/topologia', methods=['GET'])
+def info_routers():
+    mi_diccionario = {}
+    # Cargar el archivo JSON
+    with open('network_info.json', 'r') as file:
+        data = json.load(file)
+
+    # Obtener las claves del diccionario
+    hostnames = list(data.keys())
+
+    for hostname in hostnames:
+        vecinos = obtener_vecinos(hostname, 'network_info.json')
+        mi_diccionario[hostname] = []
+
+        for vecino in vecinos:
+            mi_diccionario[hostname].append("http://127.0.0.1:5000/routers/" + vecino)
+    return mi_diccionario, 200
+
 @app.route('/topologia/grafica', methods=['GET'])
-def graficarTopologia():
+def graficar_topologia():
     obtener_hostnames_y_interfaces()
     graficar_enlaces_entre_routers('network_info.json', 'enlaces_entre_routers.png')
     return jsonify({"message": "Grafica lista :3"}), 200
