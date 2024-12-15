@@ -106,7 +106,8 @@ def obtener_ip_loopback(host, usuario='admin', contrasena='admin'):
 def obtener_hostnames_y_interfaces():
     # Obtiene las IPs de las interfaces
     interfaces = escanear_interfaces()
-
+    print(interfaces)
+    print(len(interfaces))
     # Diccionario para almacenar los hostnames y sus respectivas interfaces
     network_info = {}
 

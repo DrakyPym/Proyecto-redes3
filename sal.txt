@@ -1,0 +1,29 @@
+curl http://127.0.0.1:5000/topologia/
+
+curl -X POST http://127.0.0.1:5000/topologia -d "" 
+
+
+curl -X POST http://localhost:5000/usuarios \
+-H "Content-Type: application/json" \
+-d '{
+    "usuario": "nuevo_usuario",
+    "contrasena": "mi_contrasena_segura",
+    "privilegio": "15"
+}'
+
+curl -X POST http://127.0.0.1:5000/topologia
+
+curl -X PUT -H "Content-Type: application/json" -d '{"intervalo": 5}' http://127.0.0.1:5000/topologia
+
+curl http://127.0.0.1:5000/routers/R1/usuarios/
+
+
+######Akari################
+
+curl -X GET http://127.0.0.1:5000/usuarios
+
+
+
+####PAUL############
+
+

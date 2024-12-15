@@ -1,101 +1,131 @@
 import paramiko
+import time
 import json
-import os
 
-# Datos de conexión SSH
-hostname = '192.168.1.1'
-port = 22
-username = 'your_username'
-password = 'your_password'
-
-# Función para crear una conexión SSH
-def crear_conexion():
+def obtener_usuarios_router(hostname, ip):
     try:
-        cliente = paramiko.SSHClient()
-        cliente.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        cliente.connect(hostname, port=port, username=username, password=password)
-        return cliente
-    except Exception as e:
-        print(f"Error al conectar: {e}")
-        return None
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
 
-# Función para ejecutar un comando remoto a través de SSH
-def ejecutar_comando(cliente, comando):
-    try:
-        stdin, stdout, stderr = cliente.exec_command(comando)
-        salida = stdout.read().decode('utf-8')
-        error = stderr.read().decode('utf-8')
-        if error:
-            print(f"Error: {error}")
-        return salida
-    except Exception as e:
-        print(f"Error al ejecutar el comando: {e}")
-        return None
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
 
-# Ruta relativa para el archivo de usuarios en el repositorio
-ruta_archivo_json = 'network_info.json'
-
-# Función para recuperar los usuarios del router
-def obtener_usuarios(cliente):
-    try:
-        # Comando que lee el archivo JSON de usuarios en el router
-        comando = f"cat {ruta_archivo_json}"
-        salida = ejecutar_comando(cliente, comando)
-        if salida:
-            return json.loads(salida)
+        # Verificar si la conexión está activa
+        transport = ssh_client.get_transport()
+        if transport is not None and transport.is_active():
+            print(f"Conexión SSH establecida exitosamente con {hostname} ({ip}).")
         else:
-            return []
-    except Exception as e:
-        print(f"Error al obtener los usuarios: {e}")
-        return []
+            print(f"No se pudo establecer la conexión SSH con {hostname} ({ip}).")
+            ssh_client.close()
+            return None
 
-# Función para agregar un nuevo usuario al router
-def agregar_usuario(cliente, usuario):
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)  # Esperar a que la shell esté lista
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Ejecutar el comando 'show running-config' para obtener información de usuarios
+        shell.send('show running-config\n')
+        time.sleep(3)  # Dar tiempo al dispositivo para generar la salida
+        running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+        # Procesar la información de los usuarios
+        usuarios = []
+        for line in running_config_output.splitlines():
+            if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                # Extraer el nombre de usuario y los permisos (si los tiene)
+                columns = line.split()
+                if len(columns) >= 3:
+                    usuario = columns[1]  # Nombre del usuario
+                    permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                    # Agregar solo el nombre de usuario y el nivel de privilegio, sin la contraseña
+                    privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                    usuarios.append({
+                        "usuario": usuario,
+                        "permisos": permisos,
+                        "privilegio": privilegio
+                    })
+
+        # Cerrar la conexión SSH
+        ssh_client.close()
+
+        # Devolver los datos del router en formato JSON
+        return json.dumps({
+            "nombre": hostname,
+            "ip": ip,
+            "usuarios": usuarios
+        }, indent=4)
+
+    except paramiko.SSHException as ssh_error:
+        print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+    except Exception as e:
+        print(f"Error al obtener la información de {hostname} ({ip}): {e}")
+    finally:
+        try:
+            ssh_client.close()
+        except:
+            pass  # Evitar errores si la conexión ya está cerrada
+
+    return None
+
+
+def agregar_usuario_en_router(hostname, ip, nombre_usuario, contrasena, privilegio):
     try:
-        usuarios = obtener_usuarios(cliente)  # Obtenemos los usuarios existentes
-        usuarios.append(usuario)  # Agregamos el nuevo usuario
-        archivo_json = json.dumps(usuarios, indent=2)
-        comando = f"echo '{archivo_json}' > {ruta_archivo_json}"
-        ejecutar_comando(cliente, comando)
-        return usuario
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
+
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Comando para agregar un nuevo usuario con el nivel de privilegio proporcionado
+        shell.send(f'conf t\n')
+        time.sleep(1)
+        shell.recv(65535)
+        
+        # Agregar el nuevo usuario con el privilegio especificado
+        shell.send(f'username {nombre_usuario} privilege {privilegio} secret {contrasena}\n')
+        time.sleep(2)
+        
+        # Verificar que el usuario haya sido agregado
+        shell.send('show running-config | include username\n')
+        time.sleep(2)
+        output = shell.recv(65535).decode('utf-8').strip()
+
+        # Procesar la salida para verificar que el usuario ha sido agregado
+        for line in output.splitlines():
+            if nombre_usuario in line:
+                # Extraer los permisos
+                columnas = line.split()
+                permisos = columnas[2] if len(columnas) > 2 else "Ninguno"
+                # Devolver la información del usuario agregado
+                return {
+                    "usuario": nombre_usuario,
+                    "permisos": permisos
+                }
+
+        # Si no se encuentra el usuario en la salida, retornar None
+        return None
     except Exception as e:
         print(f"Error al agregar el usuario: {e}")
-        return None
+    finally:
+        # Asegurarse de cerrar la conexión SSH
+        ssh_client.close()
 
-# Función para actualizar un usuario en el router
-def actualizar_usuario(cliente, usuario_id, nuevo_usuario):
-    try:
-        usuarios = obtener_usuarios(cliente)  # Obtenemos los usuarios existentes
-        for i, usuario in enumerate(usuarios):
-            if usuario['id'] == usuario_id:
-                usuarios[i] = nuevo_usuario  # Actualizamos el usuario
-                archivo_json = json.dumps(usuarios, indent=2)
-                comando = f"echo '{archivo_json}' > {ruta_archivo_json}"
-                ejecutar_comando(cliente, comando)
-                return nuevo_usuario
-        print(f"Usuario con id {usuario_id} no encontrado.")
-        return None
-    except Exception as e:
-        print(f"Error al actualizar el usuario: {e}")
-        return None
+    return None
 
-# Función para eliminar un usuario en todos los routers
-def eliminar_usuario(cliente, usuario_id):
-    try:
-        usuarios = obtener_usuarios(cliente)  # Obtenemos los usuarios existentes
-        usuario_eliminado = None
-        for i, usuario in enumerate(usuarios):
-            if usuario['id'] == usuario_id:
-                usuario_eliminado = usuarios.pop(i)  # Eliminamos el usuario
-                break
-        if usuario_eliminado:
-            archivo_json = json.dumps(usuarios, indent=2)
-            comando = f"echo '{archivo_json}' > {ruta_archivo_json}"
-            ejecutar_comando(cliente, comando)
-            return usuario_eliminado
-        else:
-            print(f"Usuario con id {usuario_id} no encontrado.")
-            return None
-    except Exception as e:
-        print(f"Error al eliminar el usuario: {e}")
-        return None

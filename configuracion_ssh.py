@@ -1,12 +1,11 @@
+from escanear_red import obtener_hostnames_y_interfaces
 import pexpect
 import json
-from escanear_red import obtener_hostnames_y_interfaces
 
 # Función para configurar SSH en un router
 def configure_ssh(hostname, ip, user="admin", password="admin"):
     try:
-        # Inicia la conexión Telnet
-        print(f"Conectando a {ip} para configurar SSH...")
+        # Inicia la conexión TELNET
         child = pexpect.spawn(f'telnet {ip}', timeout=60)
         child.expect('Username:')
         child.sendline(user)
@@ -17,9 +16,9 @@ def configure_ssh(hostname, ip, user="admin", password="admin"):
         # Comandos para configurar SSH
         comandos = [
             "configure terminal",
-            "ip domain-name adminredes.escom.ipn",  # Cambia el dominio a algo adecuado
+            "ip domain-name adminredes.escom.ipn",
             "ip ssh rsa keypair-name sshkey",
-            "crypto key generate rsa usage-keys label sshkey modulus 2048",  # 2048 bits por seguridad
+            "crypto key generate rsa usage-keys label sshkey modulus 1024",
             "ip ssh v 2",
             "ip ssh time-out 30",
             "ip ssh authentication-retries 3",
@@ -38,21 +37,17 @@ def configure_ssh(hostname, ip, user="admin", password="admin"):
 
             child.expect(r'.+#')  # Espera cualquier prompt del router
 
-        # Salir de Telnet
+        # Salir de TELNET
         child.sendline("exit")
         return {"status": "completado", "descripcion": f"SSH configurado en {hostname} ({ip})"}
-    except pexpect.TIMEOUT:
-        return {"status": "fallo", "error": f"Timeout al conectar con {ip}"}
-    except pexpect.EOF:
-        return {"status": "fallo", "error": f"Fin inesperado al conectar con {ip}"}
     except Exception as e:
         return {"status": "fallo", "error": str(e)}
 
-# Función principal
+# Funcion principal
 # Función para configurar SSH en todos los routers a partir de un archivo JSON
 def configure_ssh_from_json(json_file="network_info.json", user="admin", password="admin"):
     obtener_hostnames_y_interfaces()
-    # Cargar el archivo JSON con las IPs de los routers
+    # Cargar el archivo JSON
     with open(json_file, "r") as file:
         data = json.load(file)
 

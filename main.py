@@ -4,16 +4,13 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import threading
 import time
+import paramiko
 from escanear_red import obtener_hostnames_y_interfaces, obtener_diccionario_router_ip, obtener_informacion_router, obtener_informacion_interfaces
 from flask import Flask, jsonify, request
 from graficacion import graficar_enlaces_entre_routers, obtener_vecinos
 from configuracion_ssh import configure_ssh_from_json
 from usuarios import leer_usuarios_con_permisos
-from usuarios import agregar_usuario
-from usuarios import eliminar_usuario
-from usuarios import actualizar_usuario
-from crud_usuarios_routers import crear_conexion, obtener_usuarios, agregar_usuario, actualizar_usuario, eliminar_usuario
-
+from crud_usuarios import obtener_usuarios_router, agregar_usuario_en_router
 
 # Variables globales
 diccionario_router_ip = {}
@@ -162,97 +159,6 @@ def obtener_informacion_interfaz(hostname):
     else:
         # Si el hostname no existe, retornar un error 404
         return jsonify({"error 404": "Router no encontrado"}), 404
-    
-@app.route('/routers/<hostname>/usuarios', methods=['GET'])
-def obtener_informacion_usuarios(hostname):
-    cliente = crear_conexion()
-    
-    # Verificar si el router existe en el diccionario
-    if hostname in diccionario_router_ip:
-        usuarios = obtener_usuarios(cliente, hostname)
-        
-        if usuarios:
-            return jsonify(usuarios), 200
-        else:
-            return jsonify({"error": "No se encontraron usuarios en este router"}), 404
-    else:
-        return jsonify({"error": "Router no encontrado"}), 404
-
-@app.route('/routers/<hostname>/usuarios', methods=['POST'])
-def agregar_usuario_router(hostname):
-    cliente = crear_conexion()
-    data = request.get_json()
-    
-    # Extraer los parámetros del cuerpo de la solicitud
-    nombre = data.get('nombre')
-    password = data.get('password')
-    privilegios = data.get('privilegios', '15')
-    
-    # Validar la entrada
-    if not nombre or not password:
-        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
-
-    # Llamar a la función para agregar el usuario
-    resultado = agregar_usuario(cliente, hostname, nombre, password, privilegios)
-    
-    if resultado:
-        return jsonify({"mensaje": "Usuario agregado correctamente"}), 201
-    else:
-        return jsonify({"error": "Error al agregar el usuario"}), 500
-
-@app.route('/routers/<hostname>/usuarios', methods=['PUT'])
-def actualizar_usuario_router(hostname):
-    cliente = crear_conexion()
-    data = request.get_json()
-    
-    # Extraer los parámetros de la solicitud
-    nombre = data.get('nombre')
-    password = data.get('password')
-    privilegios = data.get('privilegios')
-
-    # Validar la entrada
-    if not nombre or not password:
-        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
-
-    if hostname in diccionario_router_ip:
-        # Llamar a la función para actualizar el usuario
-        resultado = actualizar_usuario(cliente, hostname, nombre, password, privilegios)
-        
-        if resultado:
-            return jsonify({"mensaje": "Usuario actualizado correctamente"}), 200
-        else:
-            return jsonify({"error": "Error al actualizar el usuario"}), 500
-    else:
-        return jsonify({"error": "Router no encontrado"}), 404
-
-@app.route('/routers/<hostname>/usuarios', methods=['DELETE'])
-def eliminar_usuario_router(hostname):
-    cliente = crear_conexion()
-    data = request.get_json()
-    
-    # Extraer el nombre del usuario
-    nombre = data.get('nombre')
-    
-    # Validar la entrada
-    if not nombre:
-        return jsonify({"error": "Falta el parámetro 'nombre'"}), 400
-    
-    if hostname in diccionario_router_ip:
-        # Llamar a la función para eliminar el usuario
-        resultado = eliminar_usuario(cliente, hostname, nombre)
-        
-        if resultado:
-            return jsonify({"mensaje": "Usuario eliminado correctamente"}), 200
-        else:
-            return jsonify({"error": "Error al eliminar el usuario"}), 500
-    else:
-        return jsonify({"error": "Router no encontrado"}), 404
-
-@app.route('/api/data', methods=['POST'])
-def get_data():
-    data = request.get_json()  # Obtener los datos JSON enviados en la solicitud
-    name = data.get('name', 'Unknown')  # Obtenemos el valor de 'name', por defecto 'Unknown'
-    return jsonify({"message": f"Hello, {name}!"})
 
 # Ruta para obtener los usuarios de todos los routers
 @app.route('/usuarios', methods=['GET'])
@@ -264,50 +170,459 @@ def obtener_usuarios():
             usuarios.extend(usuarios_router)
     return jsonify(usuarios)
 
-# Ruta para agregar un usuario a los routers
 @app.route('/usuarios', methods=['POST'])
-def agregar_usuario_api():
+def agregar_usuario_a_todos_los_routers():
+    # Obtener los datos de la solicitud POST
     data = request.get_json()
-    nombre = data.get('nombre')
-    password = data.get('password')
-    privilegios = data.get('privilegios', '15')
-    
-    if not nombre or not password:
-        return jsonify({"error": "Faltan los parámetros 'nombre' y 'password"}), 400
-    
-    resultados = []
-    for ip in diccionario_router_ip.values():
-        resultado = agregar_usuario(ip, nombre, password, privilegios)
-        resultados.append(resultado)
-    
-    return jsonify(resultados)
+    usuario = data.get('usuario')
+    contrasena = data.get('contrasena')
+    privilegio = data.get('privilegio')
 
-# Ruta para actualizar un usuario en los routers
-@app.route('/usuarios/<nombre>', methods=['PUT'])
-def actualizar_usuario_api(nombre):
+    # Validar que los parámetros 'usuario', 'contrasena', y 'privilegio' estén presentes
+    if not usuario or not contrasena or not privilegio:
+        return jsonify({"error": "Faltan parámetros: 'usuario', 'contrasena', o 'privilegio'"}), 400
+
+    usuarios_actualizados = {}
+
+    for hostname, ip in diccionario_router_ip.items():
+        try:
+            # Crear un cliente SSH
+            ssh_client = paramiko.SSHClient()
+            ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+            # Conectarse al router
+            ssh_client.connect(ip, username="admin", password="admin")
+
+            # Iniciar una shell interactiva
+            shell = ssh_client.invoke_shell()
+            time.sleep(1)  # Esperar a que la shell esté lista
+
+            # Configurar el terminal remoto para salida completa
+            shell.send('terminal length 0\n')
+            time.sleep(1)
+            shell.recv(65535)  # Limpiar el buffer inicial
+
+            # Enviar comando para agregar el nuevo usuario
+            shell.send(f'conf t\nusername {usuario} privilege {privilegio} secret {contrasena}\n')
+            time.sleep(2)
+            shell.send('end\n')
+            time.sleep(1)
+
+            # Ejecutar 'show running-config' para verificar los cambios
+            shell.send('show running-config\n')
+            time.sleep(3)
+            running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+            # Procesar la información de los usuarios
+            usuarios = []
+            for line in running_config_output.splitlines():
+                if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                    columns = line.split()
+                    if len(columns) >= 3:
+                        usuario = columns[1]  # Nombre del usuario
+                        permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                        privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                        usuarios.append({
+                            "usuario": usuario,
+                            "permisos": permisos,
+                            "privilegio": privilegio
+                        })
+
+            # Cerrar la conexión SSH
+            ssh_client.close()
+
+            # Guardar la lista de usuarios actualizados por router
+            usuarios_actualizados[hostname] = {
+                "ip": ip,
+                "usuarios": usuarios
+            }
+
+        except paramiko.SSHException as ssh_error:
+            print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+            usuarios_actualizados[hostname] = {
+                "error": f"Error SSH con {hostname} ({ip}): {ssh_error}"
+            }
+        except Exception as e:
+            print(f"Error al agregar el usuario en {hostname} ({ip}): {e}")
+            usuarios_actualizados[hostname] = {
+                "error": f"Error al agregar el usuario en {hostname} ({ip}): {e}"
+            }
+
+    # Devolver la información actualizada de todos los routers
+    return jsonify(usuarios_actualizados)
+
+
+@app.route('/usuarios', methods=['PUT'])
+def actualizar_usuario_en_todos_los_routers():
+    # Obtener los datos de la solicitud PUT
     data = request.get_json()
-    password = data.get('password')
-    privilegios = data.get('privilegios', '15')
-    
-    if not password:
-        return jsonify({"error": "Falta el parámetro 'password'"}), 400
-    
-    resultados = []
-    for ip in diccionario_router_ip.values():
-        resultado = actualizar_usuario(ip, nombre, password, privilegios)
-        resultados.append(resultado)
-    
-    return jsonify(resultados)
+    usuario = data.get('usuario')
+    nueva_contrasena = data.get('nueva_contrasena')
+    nuevo_privilegio = data.get('nuevo_privilegio')
 
-# Ruta para eliminar un usuario de los routers
-@app.route('/usuarios/<nombre>', methods=['DELETE'])
-def eliminar_usuario_api(nombre):
-    resultados = []
-    for ip in diccionario_router_ip.values():
-        resultado = eliminar_usuario(ip, nombre)
-        resultados.append(resultado)
+    # Validar que los parámetros 'usuario', 'nueva_contrasena', y 'nuevo_privilegio' estén presentes
+    if not usuario or not nueva_contrasena or not nuevo_privilegio:
+        return jsonify({"error": "Faltan parámetros: 'usuario', 'nueva_contrasena', o 'nuevo_privilegio'"}), 400
+
+    usuarios_actualizados = {}
+
+    for hostname, ip in diccionario_router_ip.items():
+        try:
+            # Crear un cliente SSH
+            ssh_client = paramiko.SSHClient()
+            ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+            # Conectarse al router
+            ssh_client.connect(ip, username="admin", password="admin")
+
+            # Iniciar una shell interactiva
+            shell = ssh_client.invoke_shell()
+            time.sleep(1)  # Esperar a que la shell esté lista
+
+            # Configurar el terminal remoto para salida completa
+            shell.send('terminal length 0\n')
+            time.sleep(1)
+            shell.recv(65535)  # Limpiar el buffer inicial
+
+            # Enviar comando para actualizar la contraseña y privilegio del usuario
+            shell.send(f'conf t\nusername {usuario} privilege {nuevo_privilegio} secret {nueva_contrasena}\n')
+            time.sleep(2)
+            shell.send('end\n')
+            time.sleep(1)
+
+            # Ejecutar 'show running-config' para verificar los cambios
+            shell.send('show running-config\n')
+            time.sleep(3)
+            running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+            # Procesar la información de los usuarios
+            usuarios = []
+            for line in running_config_output.splitlines():
+                if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                    columns = line.split()
+                    if len(columns) >= 3:
+                        usuario = columns[1]  # Nombre del usuario
+                        permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                        privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                        usuarios.append({
+                            "usuario": usuario,
+                            "permisos": permisos,
+                            "privilegio": privilegio
+                        })
+
+            # Cerrar la conexión SSH
+            ssh_client.close()
+
+            # Guardar la lista de usuarios actualizados por router
+            usuarios_actualizados[hostname] = {
+                "ip": ip,
+                "usuarios": usuarios
+            }
+
+        except paramiko.SSHException as ssh_error:
+            print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+            usuarios_actualizados[hostname] = {
+                "error": f"Error SSH con {hostname} ({ip}): {ssh_error}"
+            }
+        except Exception as e:
+            print(f"Error al actualizar el usuario en {hostname} ({ip}): {e}")
+            usuarios_actualizados[hostname] = {
+                "error": f"Error al actualizar el usuario en {hostname} ({ip}): {e}"
+            }
+
+    # Devolver la información actualizada de todos los routers
+    return jsonify(usuarios_actualizados)
+
+@app.route('/usuarios', methods=['DELETE'])
+def eliminar_usuario_en_todos_los_routers():
+    # Obtener los datos de la solicitud DELETE
+    data = request.get_json()
+    usuario = data.get('usuario')
+
+    # Validar que el parámetro 'usuario' esté presente
+    if not usuario:
+        return jsonify({"error": "Falta el parámetro 'usuario'"}), 400
+
+    usuarios_eliminados = {}
+
+    for hostname, ip in diccionario_router_ip.items():
+        try:
+            # Crear un cliente SSH
+            ssh_client = paramiko.SSHClient()
+            ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+            # Conectarse al router
+            ssh_client.connect(ip, username="admin", password="admin")
+
+            # Iniciar una shell interactiva
+            shell = ssh_client.invoke_shell()
+            time.sleep(1)  # Esperar a que la shell esté lista
+
+            # Configurar el terminal remoto para salida completa
+            shell.send('terminal length 0\n')
+            time.sleep(1)
+            shell.recv(65535)  # Limpiar el buffer inicial
+
+            # Enviar comando para eliminar el usuario
+            shell.send(f'conf t\nno username {usuario}\n')
+            time.sleep(2)
+            shell.send('end\n')
+            time.sleep(1)
+
+            # Ejecutar 'show running-config' para verificar los cambios
+            shell.send('show running-config\n')
+            time.sleep(3)
+            running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+            # Procesar la información de los usuarios después de la eliminación
+            usuarios = []
+            for line in running_config_output.splitlines():
+                if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                    columns = line.split()
+                    if len(columns) >= 3:
+                        usuario = columns[1]  # Nombre del usuario
+                        permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                        privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                        usuarios.append({
+                            "usuario": usuario,
+                            "permisos": permisos,
+                            "privilegio": privilegio
+                        })
+
+            # Cerrar la conexión SSH
+            ssh_client.close()
+
+            # Guardar la lista de usuarios actualizados por router
+            usuarios_eliminados[hostname] = {
+                "ip": ip,
+                "usuarios": usuarios
+            }
+
+        except paramiko.SSHException as ssh_error:
+            print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+            usuarios_eliminados[hostname] = {
+                "error": f"Error SSH con {hostname} ({ip}): {ssh_error}"
+            }
+        except Exception as e:
+            print(f"Error al eliminar el usuario en {hostname} ({ip}): {e}")
+            usuarios_eliminados[hostname] = {
+                "error": f"Error al eliminar el usuario en {hostname} ({ip}): {e}"
+            }
+
+    # Devolver la información actualizada de todos los routers
+    return jsonify(usuarios_eliminados)
+
+
+@app.route('/routers/<hostname>/usuarios/', methods=['GET'])
+def obtener_usuarios_por_router(hostname):
+    if hostname in diccionario_router_ip:
+        usuarios = obtener_usuarios_router(hostname, diccionario_router_ip[hostname])
+        return usuarios, 200 
+    else:
+        return jsonify({"error 404": "No se pudo obtener la informacion del router"}), 404
     
-    return jsonify(resultados)
+@app.route('/routers/<hostname>/usuarios/', methods=['POST'])
+def agregar_usuario_router(hostname):
+    try:
+        # Obtener la IP del router desde el diccionario
+        ip_router = diccionario_router_ip.get(hostname)
+        if not ip_router:
+            return jsonify({"error": "Router no encontrado"}), 404
+        
+        # Obtener datos del cuerpo de la solicitud (nuevo usuario)
+        data = request.get_json()
+        if not data or "usuario" not in data or "contrasena" not in data or "privilegio" not in data:
+            return jsonify({"error": "Datos incompletos. Se requiere 'usuario', 'contrasena' y 'privilegio'"}), 400
+        
+        # Extraer los datos
+        nombre_usuario = data["usuario"]
+        contrasena = data["contrasena"]
+        privilegio = data["privilegio"]
+
+        # Validar el nivel de privilegio (debe estar entre 0 y 15)
+        if privilegio < 0 or privilegio > 15:
+            return jsonify({"error": "El nivel de privilegio debe estar entre 0 y 15"}), 400
+
+        # Conectar al router y agregar el usuario
+        resultado = agregar_usuario_en_router(hostname, ip_router, nombre_usuario, contrasena, privilegio)
+
+        if resultado:
+            # Si el usuario fue agregado correctamente, devolver la información del nuevo usuario
+            return jsonify(resultado), 201
+        else:
+            return jsonify({"error": "No se pudo agregar el usuario al router"}), 500
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/routers/<hostname>/usuarios/', methods=['PUT'])
+def actualizar_usuario_router(hostname):
+    # Obtener los datos de la solicitud PUT
+    data = request.get_json()
+    usuario = data.get('usuario')
+    contrasena = data.get('contrasena')
+    privilegio = data.get('privilegio')
+
+    # Validar que los parámetros requeridos estén presentes
+    if not usuario or not contrasena or not privilegio:
+        return jsonify({"error": "Faltan parámetros: usuario, contrasena, privilegio"}), 400
+
+    # Obtener la IP del router desde un diccionario (debes definir este diccionario)
+    ip = diccionario_router_ip.get(hostname)
+    if not ip:
+        return jsonify({"error": f"Router con hostname {hostname} no encontrado"}), 404
+
+    try:
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
+
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)  # Esperar a que la shell esté lista
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Enviar comando para agregar o actualizar el usuario en el router
+        shell.send(f'conf t\nusername {usuario} privilege {privilegio} secret {contrasena}\n')
+        time.sleep(2)
+        shell.send('end\n')
+        time.sleep(1)
+
+        # Ejecutar 'show running-config' para verificar los cambios
+        shell.send('show running-config\n')
+        time.sleep(3)
+        running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+        # Procesar la información de los usuarios
+        usuarios = []
+        for line in running_config_output.splitlines():
+            if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                columns = line.split()
+                if len(columns) >= 3:
+                    usuario = columns[1]  # Nombre del usuario
+                    permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                    privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                    usuarios.append({
+                        "usuario": usuario,
+                        "permisos": permisos,
+                        "privilegio": privilegio
+                    })
+
+        # Cerrar la conexión SSH
+        ssh_client.close()
+
+        # Devolver los datos del router con el usuario actualizado en formato JSON
+        return jsonify({
+            "nombre": hostname,
+            "ip": ip,
+            "usuarios": usuarios
+        })
+
+    except paramiko.SSHException as ssh_error:
+        print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+        return jsonify({"error": f"Error SSH con {hostname} ({ip}): {ssh_error}"}), 500
+    except Exception as e:
+        print(f"Error al actualizar el usuario en {hostname} ({ip}): {e}")
+        return jsonify({"error": f"Error al actualizar el usuario en {hostname} ({ip}): {e}"}), 500
+    finally:
+        try:
+            ssh_client.close()
+        except:
+            pass  # Evitar errores si la conexión ya está cerrada
+
+@app.route('/routers/<hostname>/usuarios/', methods=['DELETE'])
+def eliminar_usuario_router(hostname):
+    # Obtener los datos de la solicitud DELETE (en este caso, el usuario que se quiere eliminar)
+    data = request.get_json()
+    usuario_a_eliminar = data.get('usuario')
+
+    # Validar que el parámetro 'usuario' esté presente
+    if not usuario_a_eliminar:
+        return jsonify({"error": "Falta el parámetro 'usuario'"}), 400
+
+    # Obtener la IP del router desde un diccionario (debes definir este diccionario)
+    ip = diccionario_router_ip.get(hostname)
+    if not ip:
+        return jsonify({"error": f"Router con hostname {hostname} no encontrado"}), 404
+
+    try:
+        # Crear un cliente SSH
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        paramiko.util.log_to_file("paramiko.log")  # Habilitar logs de Paramiko para depuración
+
+        # Conectarse al router
+        ssh_client.connect(ip, username="admin", password="admin")
+
+        # Iniciar una shell interactiva
+        shell = ssh_client.invoke_shell()
+        time.sleep(1)  # Esperar a que la shell esté lista
+
+        # Configurar el terminal remoto para salida completa
+        shell.send('terminal length 0\n')
+        time.sleep(1)
+        shell.recv(65535)  # Limpiar el buffer inicial
+
+        # Enviar comando para eliminar el usuario
+        shell.send(f'conf t\nno username {usuario_a_eliminar}\n')
+        time.sleep(2)
+        shell.send('end\n')
+        time.sleep(1)
+
+        # Ejecutar 'show running-config' para verificar los cambios
+        shell.send('show running-config\n')
+        time.sleep(3)
+        running_config_output = shell.recv(65535).decode('utf-8').strip()
+
+        # Procesar la información de los usuarios
+        usuarios = []
+        for line in running_config_output.splitlines():
+            if 'username' in line:  # Buscar líneas que contengan información de usuarios
+                columns = line.split()
+                if len(columns) >= 3:
+                    usuario = columns[1]  # Nombre del usuario
+                    permisos = columns[2] if len(columns) > 2 else "Ninguno"  # Permisos (si están definidos)
+                    privilegio = columns[3] if len(columns) > 3 else "Desconocido"
+                    usuarios.append({
+                        "usuario": usuario,
+                        "permisos": permisos,
+                        "privilegio": privilegio
+                    })
+
+        # Cerrar la conexión SSH
+        ssh_client.close()
+
+        # Devolver los datos del router con la lista de usuarios actualizada en formato JSON
+        return jsonify({
+            "nombre": hostname,
+            "ip": ip,
+            "usuarios": usuarios
+        })
+
+    except paramiko.SSHException as ssh_error:
+        print(f"Error SSH con {hostname} ({ip}): {ssh_error}")
+        return jsonify({"error": f"Error SSH con {hostname} ({ip}): {ssh_error}"}), 500
+    except Exception as e:
+        print(f"Error al eliminar el usuario en {hostname} ({ip}): {e}")
+        return jsonify({"error": f"Error al eliminar el usuario en {hostname} ({ip}): {e}"}), 500
+    finally:
+        try:
+            ssh_client.close()
+        except:
+            pass  # Evitar errores si la conexión ya está cerrada
+
+
 
 # Iniciar el servidor
 if __name__ == '__main__':

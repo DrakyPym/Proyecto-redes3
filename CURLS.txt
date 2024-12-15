@@ -1,0 +1,71 @@
+------------USUARIOS-------------
+
+http://localhost:5000/usuarios
+
+curl -X POST http://localhost:5000/usuarios \
+-H "Content-Type: application/json" \
+-d '{
+    "usuario": "juan",
+    "contrasena": "123",
+    "privilegio": "13"
+}'
+
+
+curl -X PUT http://localhost:5000/usuarios \
+-H "Content-Type: application/json" \
+-d '{
+    "usuario": "juan",
+    "nueva_contrasena": "nueva_contrasena_segura",
+    "nuevo_privilegio": "15"
+}'
+
+curl -X DELETE http://localhost:5000/usuarios \
+-H "Content-Type: application/json" \
+-d '{"usuario": "juan"}'
+
+
+-----------USUARIOS POR ROUTER-------------
+
+http://localhost:5000/routers/R1/usuarios/
+
+curl -X POST http://localhost:5000/routers/R1/usuarios/ \
+    -H "Content-Type: application/json" \
+    -d '{
+        "usuario": "nuevo_usuario1",
+        "contrasena": "mi_contrasena_segura1",
+        "privilegio": 15
+    }'
+
+
+curl -X PUT http://localhost:5000/routers/R1/usuarios/ \
+-H "Content-Type: application/json" \
+-d '{
+    "usuario": "nuevo_usuario1",
+    "contrasena": "nueva_contrasena_segura22222",
+    "privilegio": "12"
+}'
+
+curl -X DELETE http://localhost:5000/routers/R1/usuarios/ \
+-H "Content-Type: application/json" \
+-d '{
+    "usuario": "nuevo_usuario"
+}'
+
+
+-----------------DEMONIO--------------------
+
+curl -X PUT -H "Content-Type: application/json" -d '{"intervalo": 5}' http://127.0.0.1:5000/topologia
+
+
+
+
+
+
+
+
+
+
+
+
+
+
